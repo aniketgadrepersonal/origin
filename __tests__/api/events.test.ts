@@ -1,4 +1,6 @@
 /**
+ * @jest-environment node
+ *
  * Integration tests for /api/events and /api/events/[id].
  *
  * These tests exercise the full route handler stack — request parsing,

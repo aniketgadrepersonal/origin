@@ -4,7 +4,7 @@
  * Focuses on the three core business rules:
  *   1. Cannot register for a past event.
  *   2. Cannot exceed capacity.
- *   3. Cannot double-register.
+ *   3. Cannot double-register (keyed on email).
  */
 
 import {
@@ -60,6 +60,15 @@ function insertPastEvent() {
   return event;
 }
 
+function makeRegistrationInput(eventId: string, emailSuffix = "1") {
+  return {
+    eventId,
+    name: `User ${emailSuffix}`,
+    email: `user${emailSuffix}@example.com`,
+    aboutMe: "Test attendee",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // registerForEvent
 // ---------------------------------------------------------------------------
@@ -69,23 +78,31 @@ describe("registerForEvent", () => {
 
   it("successfully registers a user for a future event", () => {
     const event = makeFutureEvent();
-    const result = registerForEvent({ eventId: event.id, userId: "user-1" });
+    const result = registerForEvent(makeRegistrationInput(event.id));
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.registration.eventId).toBe(event.id);
-      expect(result.registration.userId).toBe("user-1");
+      expect(result.registration.email).toBe("user1@example.com");
+      expect(result.registration.name).toBe("User 1");
     }
   });
 
   it("persists the registration to the store", () => {
     const event = makeFutureEvent();
-    registerForEvent({ eventId: event.id, userId: "user-1" });
+    registerForEvent(makeRegistrationInput(event.id));
     expect(store.registrations.size).toBe(1);
+  });
+
+  it("stores aboutMe on the registration", () => {
+    const event = makeFutureEvent();
+    registerForEvent({ eventId: event.id, name: "Jane", email: "jane@example.com", aboutMe: "Engineer" });
+    const reg = Array.from(store.registrations.values())[0];
+    expect(reg.aboutMe).toBe("Engineer");
   });
 
   // Rule 0: event must exist
   it("returns 404 when the event does not exist", () => {
-    const result = registerForEvent({ eventId: "ghost", userId: "user-1" });
+    const result = registerForEvent({ eventId: "ghost", name: "A", email: "a@example.com" });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.statusCode).toBe(404);
@@ -95,10 +112,7 @@ describe("registerForEvent", () => {
   // Rule 1: past event
   it("returns 409 when attempting to register for a past event", () => {
     const pastEvent = insertPastEvent();
-    const result = registerForEvent({
-      eventId: pastEvent.id,
-      userId: "user-1",
-    });
+    const result = registerForEvent(makeRegistrationInput(pastEvent.id));
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.statusCode).toBe(409);
@@ -109,9 +123,9 @@ describe("registerForEvent", () => {
   // Rule 2: capacity
   it("returns 409 when the event is at full capacity", () => {
     const event = makeFutureEvent(2);
-    registerForEvent({ eventId: event.id, userId: "user-1" });
-    registerForEvent({ eventId: event.id, userId: "user-2" });
-    const result = registerForEvent({ eventId: event.id, userId: "user-3" });
+    registerForEvent(makeRegistrationInput(event.id, "1"));
+    registerForEvent(makeRegistrationInput(event.id, "2"));
+    const result = registerForEvent(makeRegistrationInput(event.id, "3"));
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.statusCode).toBe(409);
@@ -119,11 +133,11 @@ describe("registerForEvent", () => {
     }
   });
 
-  // Rule 3: double registration
-  it("returns 409 when the same user tries to register twice", () => {
+  // Rule 3: double registration (keyed on email)
+  it("returns 409 when the same email tries to register twice", () => {
     const event = makeFutureEvent();
-    registerForEvent({ eventId: event.id, userId: "user-1" });
-    const result = registerForEvent({ eventId: event.id, userId: "user-1" });
+    registerForEvent(makeRegistrationInput(event.id));
+    const result = registerForEvent(makeRegistrationInput(event.id));
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.statusCode).toBe(409);
@@ -131,10 +145,17 @@ describe("registerForEvent", () => {
     }
   });
 
-  it("allows different users to register for the same event", () => {
+  it("normalises email to lowercase for dedup", () => {
+    const event = makeFutureEvent();
+    registerForEvent({ eventId: event.id, name: "A", email: "User@Example.COM" });
+    const result = registerForEvent({ eventId: event.id, name: "B", email: "user@example.com" });
+    expect(result.success).toBe(false);
+  });
+
+  it("allows different emails to register for the same event", () => {
     const event = makeFutureEvent(5);
-    const r1 = registerForEvent({ eventId: event.id, userId: "user-1" });
-    const r2 = registerForEvent({ eventId: event.id, userId: "user-2" });
+    const r1 = registerForEvent(makeRegistrationInput(event.id, "1"));
+    const r2 = registerForEvent(makeRegistrationInput(event.id, "2"));
     expect(r1.success).toBe(true);
     expect(r2.success).toBe(true);
   });
@@ -153,7 +174,7 @@ describe("unregisterFromEvent", () => {
 
   it("removes an existing registration and returns true", () => {
     const event = makeFutureEvent();
-    const result = registerForEvent({ eventId: event.id, userId: "user-1" });
+    const result = registerForEvent(makeRegistrationInput(event.id));
     if (!result.success) throw new Error("Setup failed");
 
     const deleted = unregisterFromEvent(result.registration.id);
@@ -163,16 +184,14 @@ describe("unregisterFromEvent", () => {
 
   it("frees up a spot after unregistering", () => {
     const event = makeFutureEvent(1);
-    const r1 = registerForEvent({ eventId: event.id, userId: "user-1" });
+    const r1 = registerForEvent(makeRegistrationInput(event.id, "1"));
     if (!r1.success) throw new Error("Setup failed");
 
-    // At capacity — third user should fail
-    const blocked = registerForEvent({ eventId: event.id, userId: "user-2" });
+    const blocked = registerForEvent(makeRegistrationInput(event.id, "2"));
     expect(blocked.success).toBe(false);
 
-    // After unregistering, the spot opens
     unregisterFromEvent(r1.registration.id);
-    const freed = registerForEvent({ eventId: event.id, userId: "user-2" });
+    const freed = registerForEvent(makeRegistrationInput(event.id, "2"));
     expect(freed.success).toBe(true);
   });
 });
@@ -192,11 +211,11 @@ describe("getRegistrationsByEvent", () => {
   it("returns only registrations for the requested event", () => {
     const event1 = makeFutureEvent();
     const event2 = makeFutureEvent();
-    registerForEvent({ eventId: event1.id, userId: "user-1" });
-    registerForEvent({ eventId: event2.id, userId: "user-2" });
+    registerForEvent(makeRegistrationInput(event1.id, "1"));
+    registerForEvent(makeRegistrationInput(event2.id, "2"));
 
     const results = getRegistrationsByEvent(event1.id);
     expect(results).toHaveLength(1);
-    expect(results[0].userId).toBe("user-1");
+    expect(results[0].email).toBe("user1@example.com");
   });
 });

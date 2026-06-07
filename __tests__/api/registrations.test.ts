@@ -1,10 +1,12 @@
 /**
+ * @jest-environment node
+ *
  * Integration tests for /api/registrations and /api/registrations/[id].
  *
  * Focuses on the three business rules that matter most:
  *   1. Cannot register for a past event
  *   2. Cannot exceed capacity
- *   3. Cannot double-register
+ *   3. Cannot double-register (keyed on email)
  *
  * Also verifies the happy path and unregister flow.
  */
@@ -42,15 +44,20 @@ async function createEvent(overrides: Record<string, unknown> = {}): Promise<str
   return id;
 }
 
-/** Helper: register a user and return the full json response. */
-async function registerUser(eventId: string, userId: string) {
+/** Helper: register an attendee and return the full json response. */
+async function registerUser(eventId: string, emailSuffix = "1", name?: string) {
   let result: { status: number; json: Record<string, unknown> } = { status: 0, json: {} };
   await testApiHandler({
     appHandler: registrationsHandler,
     test: async ({ fetch }) => {
       const res = await fetch({
         method: "POST",
-        body: JSON.stringify({ eventId, userId }),
+        body: JSON.stringify({
+          eventId,
+          name: name ?? `User ${emailSuffix}`,
+          email: `user${emailSuffix}@example.com`,
+          aboutMe: "Test attendee",
+        }),
         headers: { "Content-Type": "application/json" },
       });
       result = { status: res.status, json: await res.json() };
@@ -64,15 +71,16 @@ async function registerUser(eventId: string, userId: string) {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/registrations — happy path", () => {
-  it("registers a user and returns 201 with a registration id", async () => {
+  it("registers an attendee and returns 201 with name, email, and registration id", async () => {
     const eventId = await createEvent();
-    const { status, json } = await registerUser(eventId, "user-1");
+    const { status, json } = await registerUser(eventId);
 
     expect(status).toBe(201);
     expect((json as any).success).toBe(true);
     expect(typeof (json as any).data?.id).toBe("string");
     expect((json as any).data?.eventId).toBe(eventId);
-    expect((json as any).data?.userId).toBe("user-1");
+    expect((json as any).data?.email).toBe("user1@example.com");
+    expect((json as any).data?.name).toBe("User 1");
   });
 });
 
@@ -81,13 +89,8 @@ describe("POST /api/registrations — happy path", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/registrations — past event", () => {
-  it("returns 409 when registering for a past event", async () => {
-    // We can't create a past event via the API (validator blocks it), so we
-    // create a future event via the service layer directly to simulate this.
-    // Instead, test that the validator rejects a past date on event creation
-    // and separately rely on the unit tests for the past-event registration rule.
-    // Here we verify the API plumbing rejects invalid eventId gracefully.
-    const { status, json } = await registerUser("non-existent-event", "user-1");
+  it("returns 404 for a non-existent event", async () => {
+    const { status, json } = await registerUser("non-existent-event");
     expect(status).toBe(404);
     expect((json as any).success).toBe(false);
   });
@@ -101,10 +104,10 @@ describe("POST /api/registrations — capacity enforcement", () => {
   it("returns 409 when the event is full", async () => {
     const eventId = await createEvent({ maxCapacity: 2 });
 
-    await registerUser(eventId, "user-1");
-    await registerUser(eventId, "user-2");
+    await registerUser(eventId, "1");
+    await registerUser(eventId, "2");
 
-    const { status, json } = await registerUser(eventId, "user-3");
+    const { status, json } = await registerUser(eventId, "3");
     expect(status).toBe(409);
     expect((json as any).success).toBe(false);
     expect((json as any).error).toMatch(/capacity/i);
@@ -113,8 +116,8 @@ describe("POST /api/registrations — capacity enforcement", () => {
   it("allows exactly maxCapacity registrations", async () => {
     const eventId = await createEvent({ maxCapacity: 2 });
 
-    const first = await registerUser(eventId, "user-1");
-    const second = await registerUser(eventId, "user-2");
+    const first = await registerUser(eventId, "1");
+    const second = await registerUser(eventId, "2");
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
@@ -126,23 +129,23 @@ describe("POST /api/registrations — capacity enforcement", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/registrations — double-register prevention", () => {
-  it("returns 409 when the same user registers twice for the same event", async () => {
+  it("returns 409 when the same email registers twice for the same event", async () => {
     const eventId = await createEvent();
 
-    await registerUser(eventId, "user-1");
-    const { status, json } = await registerUser(eventId, "user-1");
+    await registerUser(eventId, "1");
+    const { status, json } = await registerUser(eventId, "1");
 
     expect(status).toBe(409);
     expect((json as any).success).toBe(false);
     expect((json as any).error).toMatch(/already registered/i);
   });
 
-  it("allows the same user to register for different events", async () => {
+  it("allows the same email to register for different events", async () => {
     const eventA = await createEvent();
     const eventB = await createEvent();
 
-    const first = await registerUser(eventA, "user-1");
-    const second = await registerUser(eventB, "user-1");
+    const first = await registerUser(eventA, "1");
+    const second = await registerUser(eventB, "1");
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
@@ -156,7 +159,7 @@ describe("POST /api/registrations — double-register prevention", () => {
 describe("DELETE /api/registrations/[id]", () => {
   it("unregisters successfully and returns 200", async () => {
     const eventId = await createEvent();
-    const { json } = await registerUser(eventId, "user-1");
+    const { json } = await registerUser(eventId);
     const registrationId = (json as any).data.id;
 
     await testApiHandler({
@@ -173,17 +176,15 @@ describe("DELETE /api/registrations/[id]", () => {
 
   it("returns 404 when deleting an already-deleted registration", async () => {
     const eventId = await createEvent();
-    const { json } = await registerUser(eventId, "user-1");
+    const { json } = await registerUser(eventId);
     const registrationId = (json as any).data.id;
 
-    // First delete
     await testApiHandler({
       appHandler: registrationByIdHandler,
       params: { id: registrationId },
       test: async ({ fetch }) => { await fetch({ method: "DELETE" }); },
     });
 
-    // Second delete — should 404
     await testApiHandler({
       appHandler: registrationByIdHandler,
       params: { id: registrationId },
@@ -196,18 +197,16 @@ describe("DELETE /api/registrations/[id]", () => {
 
   it("allows re-registration after unregistering", async () => {
     const eventId = await createEvent({ maxCapacity: 1 });
-    const { json } = await registerUser(eventId, "user-1");
+    const { json } = await registerUser(eventId, "1");
     const registrationId = (json as any).data.id;
 
-    // Unregister
     await testApiHandler({
       appHandler: registrationByIdHandler,
       params: { id: registrationId },
       test: async ({ fetch }) => { await fetch({ method: "DELETE" }); },
     });
 
-    // Re-register — spot should be free again
-    const reRegister = await registerUser(eventId, "user-1");
+    const reRegister = await registerUser(eventId, "1");
     expect(reRegister.status).toBe(201);
   });
 });
@@ -223,7 +222,7 @@ describe("POST /api/registrations — validation", () => {
       test: async ({ fetch }) => {
         const res = await fetch({
           method: "POST",
-          body: JSON.stringify({ userId: "user-1" }),
+          body: JSON.stringify({ name: "Jane", email: "jane@example.com" }),
           headers: { "Content-Type": "application/json" },
         });
         expect(res.status).toBe(422);
@@ -231,13 +230,41 @@ describe("POST /api/registrations — validation", () => {
     });
   });
 
-  it("returns 422 when userId is missing", async () => {
+  it("returns 422 when name is missing", async () => {
     await testApiHandler({
       appHandler: registrationsHandler,
       test: async ({ fetch }) => {
         const res = await fetch({
           method: "POST",
-          body: JSON.stringify({ eventId: "some-id" }),
+          body: JSON.stringify({ eventId: "abc", email: "jane@example.com" }),
+          headers: { "Content-Type": "application/json" },
+        });
+        expect(res.status).toBe(422);
+      },
+    });
+  });
+
+  it("returns 422 when email is missing", async () => {
+    await testApiHandler({
+      appHandler: registrationsHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: "POST",
+          body: JSON.stringify({ eventId: "abc", name: "Jane" }),
+          headers: { "Content-Type": "application/json" },
+        });
+        expect(res.status).toBe(422);
+      },
+    });
+  });
+
+  it("returns 422 when email format is invalid", async () => {
+    await testApiHandler({
+      appHandler: registrationsHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: "POST",
+          body: JSON.stringify({ eventId: "abc", name: "Jane", email: "not-an-email" }),
           headers: { "Content-Type": "application/json" },
         });
         expect(res.status).toBe(422);

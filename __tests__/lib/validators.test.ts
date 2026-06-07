@@ -76,6 +76,15 @@ describe("validateCreateEvent", () => {
     expect(errors.some((e) => e.field === "maxCapacity")).toBe(true);
   });
 
+  it("errors when maxCapacity exceeds 50", () => {
+    const errors = validateCreateEvent({ ...valid, maxCapacity: 51 });
+    expect(errors.some((e) => e.field === "maxCapacity")).toBe(true);
+  });
+
+  it("passes when maxCapacity is exactly 50", () => {
+    expect(validateCreateEvent({ ...valid, maxCapacity: 50 })).toHaveLength(0);
+  });
+
   it("can return multiple errors at once", () => {
     const errors = validateCreateEvent({ title: "", description: "", date: "bad", maxCapacity: -1 });
     expect(errors.length).toBeGreaterThanOrEqual(3);
@@ -109,6 +118,11 @@ describe("validateUpdateEvent", () => {
     const errors = validateUpdateEvent({ maxCapacity: 0 });
     expect(errors.some((e) => e.field === "maxCapacity")).toBe(true);
   });
+
+  it("errors when provided maxCapacity exceeds 50", () => {
+    const errors = validateUpdateEvent({ maxCapacity: 51 });
+    expect(errors.some((e) => e.field === "maxCapacity")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -116,24 +130,38 @@ describe("validateUpdateEvent", () => {
 // ---------------------------------------------------------------------------
 
 describe("validateCreateRegistration", () => {
+  const valid = { eventId: "abc", name: "Jane Smith", email: "jane@example.com" };
+
   it("returns no errors for valid input", () => {
-    expect(
-      validateCreateRegistration({ eventId: "abc", userId: "xyz" })
-    ).toHaveLength(0);
+    expect(validateCreateRegistration(valid)).toHaveLength(0);
+  });
+
+  it("passes with optional aboutMe included", () => {
+    expect(validateCreateRegistration({ ...valid, aboutMe: "Engineer" })).toHaveLength(0);
   });
 
   it("errors when eventId is missing", () => {
-    const errors = validateCreateRegistration({ eventId: "", userId: "xyz" });
+    const errors = validateCreateRegistration({ ...valid, eventId: "" });
     expect(errors.some((e) => e.field === "eventId")).toBe(true);
   });
 
-  it("errors when userId is missing", () => {
-    const errors = validateCreateRegistration({ eventId: "abc", userId: "" });
-    expect(errors.some((e) => e.field === "userId")).toBe(true);
+  it("errors when name is missing", () => {
+    const errors = validateCreateRegistration({ ...valid, name: "" });
+    expect(errors.some((e) => e.field === "name")).toBe(true);
   });
 
-  it("errors when both fields are missing", () => {
+  it("errors when email is missing", () => {
+    const errors = validateCreateRegistration({ ...valid, email: "" });
+    expect(errors.some((e) => e.field === "email")).toBe(true);
+  });
+
+  it("errors when email format is invalid", () => {
+    const errors = validateCreateRegistration({ ...valid, email: "not-an-email" });
+    expect(errors.some((e) => e.field === "email")).toBe(true);
+  });
+
+  it("errors when all required fields are missing", () => {
     const errors = validateCreateRegistration({});
-    expect(errors).toHaveLength(2);
+    expect(errors.length).toBeGreaterThanOrEqual(3);
   });
 });

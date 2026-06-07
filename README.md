@@ -137,24 +137,39 @@ npm run dev
 
 The app will be available at `http://localhost:3000`.
 
+---
+
+### Getting an Anthropic API key
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) and sign in or create an account.
+2. Click **API Keys** in the left sidebar.
+3. Click **Create Key**, give it a name, and copy the key — it starts with `sk-ant-`.
+4. Paste it into `.env.local` as `ANTHROPIC_API_KEY=sk-ant-...`.
+5. Restart the dev server (`Ctrl+C` then `npm run dev`) so Next.js picks up the new variable.
+
+To verify the key is working, open the "+ New event" modal and try the "Create with AI" input. A successful response will pre-fill the form fields.
+
+> **Note:** The AI features use Claude Haiku, which is Anthropic's fastest and most cost-efficient model. Typical usage in development costs fractions of a cent per request.
+
+---
+
 ### Corporate / VPN environments
 
-If you're behind a corporate SSL inspection proxy, Node.js may reject the proxy's certificate with an "unable to get local issuer certificate" error when calling the Anthropic API. Fix it by pointing Node.js to your corporate CA:
+If you're on a corporate network with SSL inspection, Node.js may fail with `unable to get local issuer certificate` when calling the Anthropic API. This happens because the corporate proxy re-signs HTTPS traffic with its own root CA, which Node.js doesn't trust by default (even though your browser does).
+
+The app already sets `NODE_TLS_REJECT_UNAUTHORIZED=0` automatically in development via `src/lib/ai.ts`, which should resolve this without any manual steps. If you still see the error, restart the dev server after adding your API key — the fix only takes effect once the server boots with the key present.
+
+If you prefer a cleaner solution that doesn't disable TLS verification entirely, export your corporate root CA and point Node.js to it:
 
 ```bash
-# Option 1 — export your corporate root CA (recommended)
-# Find the cert in Chrome: Settings → Privacy → Security → Manage certificates
-# Export as .crt, then:
+# macOS / Linux
 NODE_EXTRA_CA_CERTS=/path/to/corporate-ca.crt npm run dev
 
-# Option 2 — disable TLS verification (dev only, not safe for production)
-NODE_TLS_REJECT_UNAUTHORIZED=0 npm run dev
+# Windows PowerShell
+$env:NODE_EXTRA_CA_CERTS="C:\path\to\corporate-ca.crt"; npm run dev
 ```
 
-On Windows PowerShell:
-```powershell
-$env:NODE_TLS_REJECT_UNAUTHORIZED="0"; npm run dev
-```
+To find your corporate CA in Chrome: Settings → Privacy and security → Security → Manage certificates → find your company's root CA → export as `.crt`.
 
 ### Quick smoke test
 
@@ -179,8 +194,8 @@ curl -X POST http://localhost:3000/api/registrations \
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | For AI features | Anthropic API key. Get one at console.anthropic.com. |
-| `ADMIN_PASSWORD` | For admin access | Any string. Hashed with sha256 before storing in cookie. |
+| `ANTHROPIC_API_KEY` | For AI features | Anthropic API key (starts with `sk-ant-`). Get one at [console.anthropic.com](https://console.anthropic.com) → API Keys. Restart the dev server after adding it. |
+| `ADMIN_PASSWORD` | For admin access | Any string you choose. Hashed with sha256 before storing in cookie — never stored in plain text. |
 
 Copy `.env.example` to `.env.local`. Never commit `.env.local` — it's in `.gitignore`.
 
