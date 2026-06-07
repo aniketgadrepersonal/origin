@@ -5,7 +5,7 @@ A full-stack event management application built with Next.js. Supports creating 
 ---
 
 ## Table of Contents
-
+- [Demo](#demo)
 - [Architecture Overview](#architecture-overview)
 - [Folder Structure](#folder-structure)
 - [Local Development](#local-development)
@@ -22,6 +22,14 @@ A full-stack event management application built with Next.js. Supports creating 
 - [CI/CD Pipeline](#cicd-pipeline)
 
 ---
+
+## Demo
+
+
+
+https://github.com/user-attachments/assets/860bc585-1429-442f-a627-4e070032e329
+
+
 
 ## Architecture Overview
 
