@@ -99,7 +99,7 @@ export function EventCard({ event, isAdmin = false, onUpdate, onRefresh, style }
                 border: "none", color: "var(--accent)", cursor: "pointer",
                 fontFamily: "var(--font)", textDecoration: "underline", textUnderlineOffset: "2px",
               }}>
-                View registrations ({event.registrationCount})
+                Registrations ({event.registrationCount})
               </button>
             )}
           </div>
