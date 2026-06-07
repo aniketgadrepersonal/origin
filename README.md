@@ -464,7 +464,7 @@ The current AI features (natural language creation, description generation) are 
 
 ---
 
-## CI/CD Pipeline
+## CI/CD Pipeline (not implemented)
 
 The project is designed to deploy to [Vercel](https://vercel.com) with a GitHub Actions CI pipeline that runs on every pull request and deploys automatically on merge.
 
