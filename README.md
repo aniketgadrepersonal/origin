@@ -18,6 +18,8 @@ A full-stack event management application built with Next.js. Supports creating 
 - [Deployment](#deployment)
 - [Security Practices](#security-practices)
 - [Decisions and Trade-offs](#decisions-and-trade-offs)
+- [Future State](#future-state)
+- [CI/CD Pipeline](#cicd-pipeline)
 
 ---
 
@@ -429,3 +431,114 @@ Enforced in both the validator (server-side) and the form `max` attribute (clien
 
 **Known limitation: race condition in the in-memory store**
 The business rule checks (is the event full? has this email registered?) are read-then-write with no locking. Under concurrent requests, two users could both pass the capacity check and both be inserted. In production, fix this with a per-event async mutex, optimistic concurrency, or a database transaction.
+
+---
+
+## Future State
+
+The current version is a functional demo built on in-memory storage and a single shared admin password. The vision for this app as a production-grade platform involves four areas of investment.
+
+### Production infrastructure
+
+The most important structural change is replacing the in-memory store with a real database. PostgreSQL is the natural fit — it gives transactional guarantees (fixing the race condition), persistent data across restarts, and a clear migration path. The service layer (`lib/events.ts`, `lib/registrations.ts`) is already fully decoupled from storage, so this is a single-file swap in `lib/store/index.ts`. Prisma or Drizzle ORM would sit between the service layer and the database.
+
+### Authentication and multi-admin support
+
+The single shared password is replaced by a proper auth provider. [Clerk](https://clerk.com) or [NextAuth.js](https://next-auth.js.org) would add per-user accounts, role-based access (admin vs. attendee), OAuth login (Google, GitHub), and session management — all without building it from scratch. Admins could be provisioned per-organisation, enabling multi-tenant support where each team manages its own events independently.
+
+### Attendee experience
+
+Several features would significantly improve the attendee side of the product. Email confirmations (via Resend or SendGrid) sent automatically on registration, with the registration ID embedded so unregistering is a single click. A personal dashboard where attendees can view and manage all their registrations. Waitlist support for full events, with automatic promotion when a spot opens. QR code check-in at the door, generated from the registration ID. Calendar export (`.ics`) so events land directly in attendees' calendars.
+
+### Expanded AI capabilities
+
+The current AI features (natural language creation, description generation) are a foundation. The next layer would be a conversational registration assistant — a chatbot embedded on the event page that answers questions, helps attendees decide whether an event fits them, and can complete registration through dialogue. Longer term, AI-powered scheduling suggestions (proposing the best time for a new event based on past attendance patterns) and automatic event description improvement as details change.
+
+---
+
+## CI/CD Pipeline
+
+The project is designed to deploy to [Vercel](https://vercel.com) with a GitHub Actions CI pipeline that runs on every pull request and deploys automatically on merge.
+
+### How it works
+
+```
+Pull request opened
+       │
+       ▼
+GitHub Actions — CI workflow
+  ├── npm ci
+  ├── npm run lint
+  ├── npm test
+  ├── npm run build
+  └── (all pass) → Vercel preview deploy
+       │
+       ▼
+PR merged to main
+       │
+       ▼
+Vercel — production deploy (automatic)
+```
+
+### Setting it up
+
+**1. Connect the repo to Vercel**
+
+Go to [vercel.com/new](https://vercel.com/new), import the GitHub repo, and add environment variables under Project Settings → Environment Variables:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+ADMIN_PASSWORD=your-production-password
+```
+
+Vercel will deploy automatically on every push to `main` once connected.
+
+**2. Create the GitHub Actions workflow**
+
+Create `.github/workflows/ci.yml`:
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+```
+
+**3. Add secrets to GitHub**
+
+In your repo: Settings → Secrets and variables → Actions → New repository secret. Add `ANTHROPIC_API_KEY` and `ADMIN_PASSWORD` with your production values.
+
+**4. Vercel preview deploys (optional)**
+
+Install the [Vercel GitHub integration](https://vercel.com/docs/deployments/git) to get an automatic preview URL posted as a comment on every PR. Each PR gets its own isolated preview environment, making it easy to review changes before merging.
