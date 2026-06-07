@@ -1,6 +1,6 @@
 # Components (`src/components/`)
 
-Split into two directories: `ui/` for stateless primitives shared across the app, and `events/` for domain-specific components.
+Split into three directories: `ui/` for stateless primitives, `events/` for domain-specific components, and `admin/` for admin-only views.
 
 ---
 
@@ -8,51 +8,58 @@ Split into two directories: `ui/` for stateless primitives shared across the app
 
 All primitive UI components live in a single file to keep imports simple.
 
-**`Button`** — supports four variants (`primary`, `secondary`, `ghost`, `danger`) and three sizes (`sm`, `md`, `lg`). Accepts a `loading` prop that swaps the label for a `Spinner` and disables the button, preventing double-submission.
+**`Button`** — variants: `primary`, `secondary`, `ghost`, `danger`. Sizes: `sm`, `md`, `lg`. Accepts `loading` prop that swaps the label for a `Spinner` and disables the button.
 
-**`Badge`** — inline status chip. Variants: `default`, `blue`, `red`, `green`, `yellow`, `gray`. Used for event status (Open, Full, Past) and registration confirmation.
+**`Badge`** — inline status chip. Variants: `default`, `blue`, `red`, `green`, `yellow`, `gray`.
 
-**`Spinner`** — an animated SVG ring. Used inside `Button` during loading states.
+**`Spinner`** — animated SVG ring used inside `Button` during loading states.
 
-**`EmptyState`** — centered empty-page layout with a title, optional subtitle, and optional action slot. Shown when the events list is empty or a search returns no results.
+**`EmptyState`** — centered empty-page layout with title, optional subtitle, and optional action slot.
 
-**`Toast`** — fixed bottom-right notification that auto-dismisses after 3.5 seconds. Accepts `success` or `error` type. Used after create, update, register, and unregister operations.
+**`Toast`** — fixed bottom-right notification that auto-dismisses after 3.5 seconds. Variants: `success`, `error`.
 
-**`Modal`** — accessible dialog overlay. Closes on Escape key or backdrop click. Includes:
-- `role="dialog"` and `aria-modal="true"` on the panel.
-- `aria-labelledby` pointing to the title element so screen readers announce the dialog name on open.
-- Auto-focus on the first focusable element when the modal opens.
-- Tab/Shift+Tab focus trap that cycles through focusable elements within the panel and never lets focus escape to the page behind it.
-- `aria-label="Close dialog"` on the close button.
+**`Modal`** — accessible dialog overlay with full keyboard support. Closes on Escape or backdrop click. Includes `role="dialog"`, `aria-modal="true"`, `aria-labelledby` on the title, auto-focus on first focusable element on open, and a Tab/Shift+Tab focus trap.
 
 ---
 
 ## `events/EventCard.tsx`
 
-Renders a single event as a card. Shows the title, description (truncated), date/time, a capacity progress bar, and a status badge. The bar color shifts from blue to yellow at 80% capacity and red at 100%.
+Renders a single event as a card. Accepts an `isAdmin` boolean prop that controls which actions are visible.
 
-Manages three modal states internally: edit, register, and unregister. The unregister button only appears when `registrationCount > 0` and the event is not past. The register button is disabled when `isFull`.
+Non-admin view: Register and Unregister buttons only.
 
-Delegates all data mutations to the `onUpdate` prop (from `useEvents`) and calls `onRefresh` after a registration or unregistration so the parent re-fetches the latest availability.
+Admin view: Edit and a "Registrations" link (in a separate row below the capacity bar to avoid layout crowding), plus the standard Register/Unregister buttons.
+
+The capacity progress bar color shifts from blue → yellow at 80% → red at 100%. The Unregister button only appears when `registrationCount > 0` and the event is not past. Register is disabled when `isFull`.
 
 ---
 
 ## `events/EventForm.tsx`
 
-Controlled form for creating and editing events. Works in two modes (`create` / `edit`) — the `initial` prop pre-populates fields when editing.
+Controlled form for creating and editing events. Operates in two modes (`create` / `edit`) — the `initial` prop pre-fills fields for editing.
 
-Converts the stored UTC ISO date to a `datetime-local` string for the browser input (`toLocalDatetime`), and converts it back to ISO on submit. This means the user sees local time while the API stores UTC.
+In create mode, an "✦ Create with AI" panel appears at the top. Type a natural language description and click "Fill form" (or press Enter) to call `/api/ai/parse-event` and pre-fill all fields. The fields remain editable before submission.
 
-The `onSubmit` prop receives the validated form data and returns `{ success, error? }`. If unsuccessful, the form displays the error inline without closing the modal.
+The date input is calendar-picker only — keyboard entry is blocked via `onKeyDown` and clicking anywhere on the field calls `showPicker()`. This prevents malformed dates.
+
+The "✦ Generate" button next to the description field calls `/api/ai/generate-description` with the current title. Disabled until a title is entered.
+
+Max capacity is capped at 50 via `max={50}` on the input and the label reads "Max capacity (max 50)".
 
 ---
 
 ## `events/RegisterPanel.tsx`
 
-Handles both the register and unregister flows inside a shared modal panel.
+Handles both register and unregister flows in a shared modal panel.
 
-In `register` mode: collects a user ID, calls `useRegistrations().register()`, then transitions to a confirmation screen showing the registration ID in a copyable monospace box. The user must click Done to dismiss — the ID is never silently discarded. This is the fix for the original UX gap where the ID was lost immediately after registration.
+In `register` mode: collects Name (required), Email (required), and About me (optional). Email is used as the dedup key server-side. On success, transitions to a confirmation screen showing the registration ID in a copyable monospace box — the user must click Done to dismiss so the ID is never silently discarded.
 
-In `unregister` mode: collects a registration ID and calls `useRegistrations().unregister()`. On success the modal closes immediately (no intermediate state needed).
+In `unregister` mode: collects a registration ID (the one shown at registration time) and calls `DELETE /api/registrations/:id`.
 
-Both modes show inline errors from the API (capacity exceeded, double-register, etc.) without closing the modal.
+Both modes display inline API errors without closing the modal.
+
+---
+
+## `admin/RegistrationsModal.tsx`
+
+Admin-only view of all registrations for a single event. Fetches from `GET /api/admin/events/:id/registrations` on mount. Renders a table with columns: Name, Email, About me, Registered date. Shows a spinner while loading, an inline error on failure, and an empty-state message if no one has registered yet.

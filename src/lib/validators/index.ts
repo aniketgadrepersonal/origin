@@ -152,8 +152,14 @@ export function validateCreateRegistration(
     errors.push({ field: "eventId", message: "eventId is required." });
   }
 
-  if (!isNonEmptyString(input.userId)) {
-    errors.push({ field: "userId", message: "userId is required." });
+  if (!isNonEmptyString(input.name)) {
+    errors.push({ field: "name", message: "Name is required." });
+  }
+
+  if (!isNonEmptyString(input.email)) {
+    errors.push({ field: "email", message: "Email is required." });
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim())) {
+    errors.push({ field: "email", message: "Email must be a valid address." });
   }
 
   return errors;

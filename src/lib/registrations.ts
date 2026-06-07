@@ -77,14 +77,15 @@ export function registerForEvent(
     };
   }
 
-  // Rule 3: cannot double-register
+  // Rule 3: cannot double-register (keyed on email)
+  const emailKey = input.email.toLowerCase().trim();
   const alreadyRegistered = Array.from(store.registrations.values()).some(
-    (r) => r.eventId === input.eventId && r.userId === input.userId
+    (r) => r.eventId === input.eventId && r.userId === emailKey
   );
   if (alreadyRegistered) {
     return {
       success: false,
-      error: "This user is already registered for the event.",
+      error: "This email is already registered for the event.",
       statusCode: 409,
     };
   }
@@ -92,7 +93,10 @@ export function registerForEvent(
   const registration: Registration = {
     id: uuidv4(),
     eventId: input.eventId,
-    userId: input.userId,
+    userId: emailKey,
+    name: input.name.trim(),
+    email: emailKey,
+    aboutMe: input.aboutMe?.trim() ?? "",
     registeredAt: new Date().toISOString(),
   };
 

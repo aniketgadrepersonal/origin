@@ -1,6 +1,6 @@
 # Event Management App
 
-A full-stack event management application built with Next.js. Supports creating and managing events, registering attendees, and enforcing capacity and scheduling business rules.
+A full-stack event management application built with Next.js. Supports creating and managing events, registering attendees, enforcing capacity and scheduling business rules, admin authentication, and AI-assisted event creation.
 
 ---
 
@@ -8,11 +8,13 @@ A full-stack event management application built with Next.js. Supports creating 
 
 - [Architecture Overview](#architecture-overview)
 - [Folder Structure](#folder-structure)
+- [Local Development](#local-development)
+- [Environment Variables](#environment-variables)
+- [Running Tests](#running-tests)
 - [API Reference](#api-reference)
 - [Business Rules](#business-rules)
-- [Local Development](#local-development)
-- [Running Tests](#running-tests)
-- [Environment Variables](#environment-variables)
+- [Admin Access](#admin-access)
+- [AI Features](#ai-features)
 - [Deployment](#deployment)
 - [Security Practices](#security-practices)
 - [Decisions and Trade-offs](#decisions-and-trade-offs)
@@ -21,7 +23,7 @@ A full-stack event management application built with Next.js. Supports creating 
 
 ## Architecture Overview
 
-This is a Next.js monorepo using the App Router. The frontend and backend live in the same repository with no external database — data is stored in-memory and resets on every server restart, as required by the exercise spec.
+This is a Next.js 14 monorepo using the App Router. The frontend and backend live in the same repository with no external database — data is stored in-memory and resets on every server restart.
 
 ```
 Browser (React)
@@ -39,12 +41,7 @@ Service Layer (lib/events.ts, lib/registrations.ts)
 In-Memory Store (lib/store/index.ts)
 ```
 
-Key decisions:
-
-- API routes are thin handlers that parse input, delegate to the service layer, and return a typed response envelope.
-- All business logic lives in the service layer, which is completely decoupled from HTTP — making it straightforward to unit test without mocking requests.
-- Input validation is a separate layer (`lib/validators`) so it can be reused and tested independently.
-- A consistent `ApiResponse<T>` envelope is returned from every endpoint so the frontend handles errors uniformly.
+Key decisions: API routes are thin handlers that parse input and delegate to the service layer. All business logic lives in the service layer, decoupled from HTTP so it can be unit tested without mocking requests. A consistent `ApiResponse<T>` envelope is returned from every endpoint.
 
 ---
 
@@ -56,41 +53,153 @@ event-management/
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── events/
-│   │   │   │   ├── route.ts              # GET /api/events, POST /api/events
-│   │   │   │   └── [id]/
-│   │   │   │       └── route.ts          # GET /api/events/:id, PATCH /api/events/:id
-│   │   │   └── registrations/
-│   │   │       ├── route.ts              # POST /api/registrations
-│   │   │       └── [id]/
-│   │   │           └── route.ts          # DELETE /api/registrations/:id
-│   │   ├── layout.tsx                    # Root layout
-│   │   └── page.tsx                      # Home page
+│   │   │   │   ├── route.ts                      # GET /api/events, POST /api/events
+│   │   │   │   └── [id]/route.ts                 # GET, PATCH /api/events/:id
+│   │   │   ├── registrations/
+│   │   │   │   ├── route.ts                      # POST /api/registrations
+│   │   │   │   └── [id]/route.ts                 # DELETE /api/registrations/:id
+│   │   │   ├── ai/
+│   │   │   │   ├── parse-event/route.ts          # POST — natural language → form fields
+│   │   │   │   └── generate-description/route.ts # POST — title → description
+│   │   │   └── admin/
+│   │   │       ├── login/route.ts                # POST — set admin cookie
+│   │   │       ├── logout/route.ts               # POST — clear admin cookie
+│   │   │       ├── me/route.ts                   # GET — check admin status
+│   │   │       └── events/[id]/registrations/route.ts  # GET — admin registration list
+│   │   ├── layout.tsx
+│   │   └── page.tsx                              # Main page with admin state
 │   ├── components/
-│   │   ├── ui/                           # Shared primitives (Button, Modal, etc.)
-│   │   ├── events/                       # Event-specific components
-│   │   └── registrations/                # Registration-specific components
+│   │   ├── ui/index.tsx                          # Button, Badge, Modal, Toast, Spinner, EmptyState
+│   │   ├── events/
+│   │   │   ├── EventCard.tsx                     # Card with capacity bar, admin controls
+│   │   │   ├── EventForm.tsx                     # Create/edit form with AI assist
+│   │   │   └── RegisterPanel.tsx                 # Register (name/email/about me) and unregister flows
+│   │   └── admin/
+│   │       └── RegistrationsModal.tsx            # Admin-only attendee table
+│   ├── hooks/
+│   │   ├── useEvents.ts                          # Fetch, create, update events
+│   │   └── useRegistrations.ts                   # Register, unregister
 │   ├── lib/
-│   │   ├── store/
-│   │   │   └── index.ts                  # In-memory Map store singleton
-│   │   ├── validators/
-│   │   │   └── index.ts                  # Pure input validation functions
-│   │   ├── utils/
-│   │   │   └── api.ts                    # Response builders, parseJsonBody
-│   │   ├── events.ts                     # Events service (business logic)
-│   │   └── registrations.ts              # Registrations service (business logic)
-│   ├── types/
-│   │   └── index.ts                      # Shared TypeScript types
-│   └── hooks/                            # Custom React hooks
+│   │   ├── store/index.ts                        # globalThis-safe in-memory Map store
+│   │   ├── events.ts                             # Events service
+│   │   ├── registrations.ts                      # Registrations service
+│   │   ├── admin-auth.ts                         # Admin cookie helper
+│   │   ├── ai.ts                                 # Shared Anthropic client
+│   │   ├── validators/index.ts                   # Pure input validation
+│   │   └── utils/api.ts                          # Response builders, parseJsonBody
+│   └── types/index.ts                            # Shared TypeScript types
 ├── __tests__/
-│   └── lib/
-│       ├── events.test.ts
-│       ├── registrations.test.ts
-│       └── validators.test.ts
+│   ├── lib/                                      # Unit tests (events, registrations, validators)
+│   └── api/                                      # Integration tests (events, registrations routes)
+├── .env.local                                    # Local env vars (never commit)
 ├── next.config.js
 ├── tsconfig.json
-├── jest.config.ts
-└── jest.setup.ts
+└── jest.config.ts
 ```
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Node.js 18.17 or later
+- npm 9 or later
+
+### Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/aniketgadrepersonal/origin.git
+cd origin
+
+# 2. Install dependencies
+npm install
+
+# 3. Create your local environment file
+cp .env.example .env.local
+```
+
+Open `.env.local` and fill in the values:
+
+```env
+# Required for AI features (natural language event creation, description generation)
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# Required for admin login — choose any password
+ADMIN_PASSWORD=your_admin_password_here
+```
+
+```bash
+# 4. Start the development server
+npm run dev
+```
+
+The app will be available at `http://localhost:3000`.
+
+### Corporate / VPN environments
+
+If you're behind a corporate SSL inspection proxy, Node.js may reject the proxy's certificate with an "unable to get local issuer certificate" error when calling the Anthropic API. Fix it by pointing Node.js to your corporate CA:
+
+```bash
+# Option 1 — export your corporate root CA (recommended)
+# Find the cert in Chrome: Settings → Privacy → Security → Manage certificates
+# Export as .crt, then:
+NODE_EXTRA_CA_CERTS=/path/to/corporate-ca.crt npm run dev
+
+# Option 2 — disable TLS verification (dev only, not safe for production)
+NODE_TLS_REJECT_UNAUTHORIZED=0 npm run dev
+```
+
+On Windows PowerShell:
+```powershell
+$env:NODE_TLS_REJECT_UNAUTHORIZED="0"; npm run dev
+```
+
+### Quick smoke test
+
+```bash
+# Create an event
+curl -X POST http://localhost:3000/api/events \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Team Lunch","description":"Monthly team lunch","date":"2027-01-15T12:00:00Z","maxCapacity":20}'
+
+# List all events
+curl http://localhost:3000/api/events
+
+# Register for an event (replace EVENT_ID)
+curl -X POST http://localhost:3000/api/registrations \
+  -H "Content-Type: application/json" \
+  -d '{"eventId":"EVENT_ID","name":"Jane Smith","email":"jane@example.com","aboutMe":"Product designer"}'
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | For AI features | Anthropic API key. Get one at console.anthropic.com. |
+| `ADMIN_PASSWORD` | For admin access | Any string. Hashed with sha256 before storing in cookie. |
+
+Copy `.env.example` to `.env.local`. Never commit `.env.local` — it's in `.gitignore`.
+
+---
+
+## Running Tests
+
+```bash
+# Run all tests (unit + integration)
+npm test
+
+# Watch mode
+npm run test:watch
+
+# Coverage report
+npm run test:coverage
+```
+
+The test suite has two layers: unit tests for the service/validator logic in `__tests__/lib/`, and integration tests for the full API route stack in `__tests__/api/`. See [`__tests__/README.md`](__tests__/README.md) for detail on what each test covers.
 
 ---
 
@@ -113,75 +222,32 @@ All responses follow this envelope:
 
 Returns all events sorted by date ascending, each enriched with real-time availability.
 
-**Response 200**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "uuid",
-      "title": "string",
-      "description": "string",
-      "date": "ISO 8601",
-      "maxCapacity": 50,
-      "registrationCount": 12,
-      "availableSpots": 38,
-      "isFull": false,
-      "createdAt": "ISO 8601",
-      "updatedAt": "ISO 8601"
-    }
-  ]
-}
-```
-
----
+**Response 200** — array of EventResponse objects (includes `registrationCount`, `availableSpots`, `isFull`)
 
 #### `POST /api/events`
 
-Creates a new event.
+Creates a new event. Requires admin login.
 
-**Request body**
 ```json
 {
   "title": "string (required, max 200 chars)",
   "description": "string (required)",
   "date": "ISO 8601 (required, must be future)",
-  "maxCapacity": "integer > 0 (required)"
+  "maxCapacity": "integer 1–50 (required)"
 }
 ```
 
-**Response 201** — created event  
-**Response 422** — validation errors
-
----
+**Response 201** — created event | **422** — validation errors | **400** — malformed JSON
 
 #### `GET /api/events/:id`
 
-Returns a single event by id.
-
-**Response 200** — event object  
-**Response 404** — event not found
-
----
+**Response 200** — event | **404** — not found
 
 #### `PATCH /api/events/:id`
 
-Partially updates an event. All fields are optional.
+Partially updates an event. All fields optional. Requires admin login.
 
-**Request body** (all optional)
-```json
-{
-  "title": "string",
-  "description": "string",
-  "date": "ISO 8601 (must be future)",
-  "maxCapacity": "integer > 0 (cannot be lower than current registration count)"
-}
-```
-
-**Response 200** — updated event  
-**Response 404** — event not found  
-**Response 409** — capacity conflict  
-**Response 422** — validation errors
+**Response 200** — updated event | **404** — not found | **409** — capacity conflict | **422** — validation errors
 
 ---
 
@@ -189,29 +255,78 @@ Partially updates an event. All fields are optional.
 
 #### `POST /api/registrations`
 
-Registers a user for an event.
+Registers an attendee for an event.
 
-**Request body**
 ```json
 {
   "eventId": "string (required)",
-  "userId": "string (required)"
+  "name": "string (required)",
+  "email": "string (required, valid email format)",
+  "aboutMe": "string (optional)"
 }
 ```
 
-**Response 201** — registration object  
-**Response 404** — event not found  
-**Response 409** — past event / at capacity / already registered  
-**Response 422** — validation errors
+Email is used as the unique identifier for dedup — the same email cannot register for the same event twice.
 
----
+**Response 201** — registration object (includes `id` — save this to unregister later) | **404** — event not found | **409** — past event / at capacity / already registered | **422** — validation errors
 
 #### `DELETE /api/registrations/:id`
 
-Unregisters a user (removes a registration by its id).
+Unregisters an attendee by registration id.
 
-**Response 200** — success  
-**Response 404** — registration not found
+**Response 200** — success | **404** — not found
+
+---
+
+### Admin
+
+#### `POST /api/admin/login`
+
+```json
+{ "password": "string" }
+```
+
+Sets an httpOnly `admin_token` cookie valid for 8 hours.
+
+**Response 200** — `{ success: true }` | **401** — incorrect password
+
+#### `POST /api/admin/logout`
+
+Clears the admin cookie. **Response 200**
+
+#### `GET /api/admin/me`
+
+**Response 200** — `{ isAdmin: true | false }`
+
+#### `GET /api/admin/events/:id/registrations`
+
+Returns full registration details (name, email, about me) for an event. Requires admin cookie.
+
+**Response 200** — array of Registration objects | **401** — not authenticated | **404** — event not found
+
+---
+
+### AI
+
+#### `POST /api/ai/parse-event`
+
+Parses a natural language event description into structured form fields.
+
+```json
+{ "prompt": "team lunch next Friday at noon for 15 people" }
+```
+
+**Response 200** — `{ title, description, date (ISO 8601), maxCapacity }` | **500** — AI error
+
+#### `POST /api/ai/generate-description`
+
+Generates a polished event description from a title.
+
+```json
+{ "title": "Engineering All-Hands" }
+```
+
+**Response 200** — `{ description: "string" }` | **500** — AI error
 
 ---
 
@@ -219,143 +334,83 @@ Unregisters a user (removes a registration by its id).
 
 | Rule | Enforcement |
 |---|---|
-| Cannot register for a past event | `registrations.ts` — checks event date against `Date.now()` |
-| Cannot exceed event capacity | `registrations.ts` — counts active registrations before inserting |
-| Cannot double-register | `registrations.ts` — checks for existing `(eventId, userId)` pair |
-| Cannot reduce capacity below current registrations | `events.ts` — checked on PATCH |
+| Cannot register for a past event | `registrations.ts` |
+| Cannot exceed event capacity | `registrations.ts` |
+| Cannot double-register (same email, same event) | `registrations.ts` |
+| Cannot reduce capacity below current registrations | `events.ts` |
 | Event date must be in the future on create/update | `validators/index.ts` |
+| Max capacity cannot exceed 50 | `validators/index.ts` + form `max` attribute |
 
 ---
 
-## Local Development
+## Admin Access
 
-### Prerequisites
+Click "Admin login" in the top-right nav and enter the password set in `ADMIN_PASSWORD`. Once logged in:
 
-- Node.js 18.17 or later
-- npm 9 or later
+- The nav shows an "Admin" badge, a "Log out" button, and a "+ New event" button.
+- Each event card shows "Edit" and "Registrations" buttons.
+- The Registrations modal shows a full table of attendees: name, email, about me, and registration date.
 
-### Setup
-
-```bash
-# 1. Clone the repository
-git clone <your-repo-url>
-cd event-management
-
-# 2. Install dependencies
-npm install
-
-# 3. Copy environment variables
-cp .env.example .env.local
-
-# 4. Start the development server
-npm run dev
-```
-
-The app will be available at `http://localhost:3000`.  
-API routes are available at `http://localhost:3000/api/*`.
-
-### Quick API smoke test with curl
-
-```bash
-# Create an event
-curl -X POST http://localhost:3000/api/events \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Team Lunch","description":"Monthly team lunch","date":"2026-12-01T12:00:00Z","maxCapacity":20}'
-
-# List all events
-curl http://localhost:3000/api/events
-
-# Register for an event (replace EVENT_ID)
-curl -X POST http://localhost:3000/api/registrations \
-  -H "Content-Type: application/json" \
-  -d '{"eventId":"EVENT_ID","userId":"user-123"}'
-```
+The admin session is stored in an httpOnly cookie (sha256 of the password) and expires after 8 hours. There is no username — a single shared password is used. For production, replace this with a proper auth provider.
 
 ---
 
-## Running Tests
+## AI Features
 
-```bash
-# Run all tests
-npm test
+The app uses the Anthropic API (`claude-haiku-4-5`) for two features, both accessible in the "+ New event" form:
 
-# Run in watch mode (re-runs on file change)
-npm run test:watch
+**Create with AI** — type a natural language description like "product demo next Thursday at 2pm for 30 people" and click "Fill form". The AI parses it into title, description, date, and capacity. All fields are editable before submission. Dates are resolved in Central Time.
 
-# Run with coverage report
-npm run test:coverage
-```
+**Generate description** — enter a title and click the "✦ Generate" button next to the description field. The AI writes a concise, professional 1–2 sentence description. The button is disabled until a title is entered.
 
-Coverage is collected for `src/lib/**` and `src/app/api/**`. The minimum threshold is 80% across branches, functions, lines, and statements — the build will fail in CI if coverage drops below this.
-
----
-
-## Environment Variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | No (for now) | Anthropic API key for AI features added in later phases |
-
-Copy `.env.example` to `.env.local` for local development. Never commit `.env.local` to version control.
+Both features require `ANTHROPIC_API_KEY` to be set. If the key is missing, a clear error is returned. The features are UX enhancements — all business rules are still enforced server-side regardless of AI input.
 
 ---
 
 ## Deployment
 
-This project is designed to deploy to Vercel with zero configuration.
+The project is designed to deploy to Vercel with zero configuration.
 
 ```bash
-# Install Vercel CLI
 npm i -g vercel
-
-# Deploy to preview
-vercel
-
-# Deploy to production
-vercel --prod
+vercel          # preview
+vercel --prod   # production
 ```
 
-A GitHub Actions CI/CD workflow (`.github/workflows/ci.yml`) will be added in a future phase to run tests and lint on every pull request before deploying.
+Set `ANTHROPIC_API_KEY` and `ADMIN_PASSWORD` as environment variables in the Vercel dashboard under Project Settings → Environment Variables.
+
+Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0` in production.
 
 ---
 
 ## Security Practices
 
-The following OWASP-aligned practices are applied:
-
-- Input validation on all API routes before any business logic runs — prevents injection via malformed payloads.
-- Security headers set in `next.config.js`: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`, `Permissions-Policy`, and `X-XSS-Protection`.
-- Safe JSON parsing in `parseJsonBody` — malformed bodies return a 400 rather than crashing the server.
-- No sensitive data is logged or exposed in error responses — error messages are human-readable but not stack traces.
-- UUIDs are used for all resource ids (via the `uuid` package) to prevent enumeration attacks.
-- TypeScript strict mode is enabled — eliminates a class of type-related runtime errors.
+- Input validation on all API routes before any business logic runs.
+- Security headers in `next.config.js`: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`, `Permissions-Policy`, `X-XSS-Protection`.
+- Safe JSON parsing via `parseJsonBody` — malformed bodies return 400, not 500.
+- Admin cookie is `httpOnly` and `sameSite: strict` — inaccessible to JavaScript and not sent on cross-site requests.
+- Admin password is never stored — only the sha256 hash is compared at request time.
+- UUIDs for all resource ids prevent enumeration.
+- TypeScript strict mode throughout.
 
 ---
 
 ## Decisions and Trade-offs
 
-**Why Next.js as a monorepo?**  
-Single repo, single deployment, shared types between frontend and backend. Reduces the overhead of maintaining two separate projects for an exercise of this scope.
+**In-memory store with globalThis**
+Module-level singletons reset on Next.js hot-module reloads in development. The store is attached to `globalThis` to survive reloads, matching the behavior of production where modules are stable.
 
-**Why in-memory Maps instead of arrays?**  
-O(1) lookups by id without iterating. Arrays would work but Maps are the right tool when id-based access is the primary read pattern.
+**Email as registration identity**
+Registrations use email as the unique identifier (`userId` field) rather than a freeform string. This makes dedup meaningful — the same person can't register twice for the same event — without requiring user accounts.
 
-**Why a service layer separate from route handlers?**  
-Route handlers should be thin. Business logic in the service layer is independently testable without HTTP overhead, and it makes a future database swap a single-file change.
+**Admin auth — single shared password**
+A single `ADMIN_PASSWORD` with an httpOnly cookie is the simplest auth that provides real gating without a user database or auth library. It's appropriate for a single-admin demo; a production system would use a proper auth provider (NextAuth, Clerk, etc.).
 
-**Why PATCH instead of PUT for updates?**  
-PUT requires sending the full resource. PATCH is more appropriate when clients only want to change one or two fields, and it maps more naturally to the "partial update" use case.
+**AI as UX layer, not business logic**
+The AI routes pre-fill the form; they don't create events directly. All validation and business rules run on the actual form submission. This means a hallucinated date or capacity from the AI is caught before it reaches the store.
 
-**What is not in scope (yet)**  
-Authentication, persistent storage, rate limiting, and the AI co-host feature are planned for later phases.
+**Max capacity capped at 50**
+Enforced in both the validator (server-side) and the form `max` attribute (client-side) to keep the in-memory store from growing unbounded in a demo context.
 
-**Known limitation: race condition in the in-memory store**  
-The business rule checks (is the event full? has this user registered?) are read-then-write operations with no locking. Under concurrent requests, two users can both read `availableSpots > 0`, both pass the capacity check, and both be inserted — exceeding `maxCapacity` by one or more.
-
-The same window exists for the double-register check: two simultaneous requests with the same `(eventId, userId)` pair can both read "not registered yet" and both succeed.
-
-This is acceptable in a single-process in-memory demo, but would be a correctness bug in production. Three approaches, in order of increasing robustness:
-
-1. **Per-event async mutex** — maintain a `Map<eventId, Promise>` and chain each registration operation as a promise, serialising writes per event. Zero external dependencies, works in a single process.
-2. **Optimistic concurrency** — add a `version` integer to each event. The check-and-insert step reads the version, performs its checks, then writes only if the version hasn't changed; otherwise retry. Mirrors the pattern used by most SQL ORMs.
-3. **Database transaction** — with a real database (e.g. PostgreSQL), wrap the check-and-insert in a serialisable transaction or use `SELECT FOR UPDATE` to hold a row lock for the duration of the write. This is the production-grade solution and one of the primary reasons to graduate from in-memory storage.
+**Known limitation: race condition in the in-memory store**
+The business rule checks (is the event full? has this email registered?) are read-then-write with no locking. Under concurrent requests, two users could both pass the capacity check and both be inserted. In production, fix this with a per-event async mutex, optimistic concurrency, or a database transaction.

@@ -38,13 +38,18 @@ export interface EventResponse extends Event {
 export interface Registration {
   id: string;
   eventId: string;
-  userId: string;
+  userId: string; // set to email server-side, used for dedup
+  name: string;
+  email: string;
+  aboutMe: string;
   registeredAt: string;
 }
 
 export interface CreateRegistrationInput {
   eventId: string;
-  userId: string;
+  name: string;
+  email: string;
+  aboutMe?: string;
 }
 
 // ---------------------------------------------------------------------------

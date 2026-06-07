@@ -5,9 +5,11 @@ import type { EventResponse, UpdateEventInput } from "@/types";
 import { Badge, Button, Modal, Toast } from "@/components/ui";
 import { EventForm } from "./EventForm";
 import { RegisterPanel } from "./RegisterPanel";
+import { RegistrationsModal } from "@/components/admin/RegistrationsModal";
 
 interface EventCardProps {
   event: EventResponse;
+  isAdmin?: boolean;
   onUpdate: (id: string, data: UpdateEventInput) => Promise<{ success: boolean; error?: string }>;
   onRefresh: () => void;
   style?: React.CSSProperties;
@@ -22,10 +24,11 @@ function formatDate(iso: string) {
   };
 }
 
-export function EventCard({ event, onUpdate, onRefresh, style }: EventCardProps) {
+export function EventCard({ event, isAdmin = false, onUpdate, onRefresh, style }: EventCardProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [unregisterOpen, setUnregisterOpen] = useState(false);
+  const [registrationsOpen, setRegistrationsOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const { date, time, isPast } = formatDate(event.date);
@@ -86,12 +89,26 @@ export function EventCard({ event, onUpdate, onRefresh, style }: EventCardProps)
           </div>
         </div>
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: "8px", paddingTop: "2px" }}>
-          <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)} style={{ color: "var(--text-secondary)", fontSize: "13px" }}>Edit</Button>
-          <div style={{ flex: 1 }} />
+        {/* Admin actions row */}
+        {isAdmin && (
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "10px" }}>
+            <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)} style={{ color: "var(--text-secondary)", fontSize: "13px" }}>Edit</Button>
+            {event.registrationCount > 0 && (
+              <button onClick={() => setRegistrationsOpen(true)} style={{
+                fontSize: "13px", fontWeight: 500, padding: 0, background: "none",
+                border: "none", color: "var(--accent)", cursor: "pointer",
+                fontFamily: "var(--font)", textDecoration: "underline", textUnderlineOffset: "2px",
+              }}>
+                View registrations ({event.registrationCount})
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Attendee actions row */}
+        <div style={{ display: "flex", gap: "8px", paddingTop: "2px", alignItems: "center" }}>
           {!isPast && event.registrationCount > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => setUnregisterOpen(true)} style={{ color: "var(--danger)", fontSize: "13px" }}>Unregister</Button>
+            <Button variant="danger" size="sm" onClick={() => setUnregisterOpen(true)}>Unregister</Button>
           )}
           {!isPast && (
             <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} disabled={event.isFull}>
@@ -101,9 +118,17 @@ export function EventCard({ event, onUpdate, onRefresh, style }: EventCardProps)
         </div>
       </div>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit event">
-        <EventForm initial={event} mode="edit" onSubmit={handleUpdate} onCancel={() => setEditOpen(false)} />
-      </Modal>
+      {isAdmin && (
+        <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit event">
+          <EventForm initial={event} mode="edit" onSubmit={handleUpdate} onCancel={() => setEditOpen(false)} />
+        </Modal>
+      )}
+
+      {isAdmin && (
+        <Modal open={registrationsOpen} onClose={() => setRegistrationsOpen(false)} title={`Registrations — ${event.title}`} width={640}>
+          <RegistrationsModal event={event} />
+        </Modal>
+      )}
 
       <Modal open={registerOpen} onClose={() => setRegisterOpen(false)} title="Register for event">
         <RegisterPanel event={event} mode="register"

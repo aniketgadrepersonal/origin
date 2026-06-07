@@ -10,13 +10,15 @@ import type { ApiResponse, Registration } from "@/types";
 export function useRegistrations(onSuccess?: () => void) {
   const register = useCallback(async (
     eventId: string,
-    userId: string
+    name: string,
+    email: string,
+    aboutMe?: string,
   ): Promise<{ success: boolean; registrationId?: string; error?: string }> => {
     try {
       const res = await fetch("/api/registrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, userId }),
+        body: JSON.stringify({ eventId, name, email, aboutMe }),
       });
       const json: ApiResponse<Registration> = await res.json();
       if (!json.success) return { success: false, error: json.error };
